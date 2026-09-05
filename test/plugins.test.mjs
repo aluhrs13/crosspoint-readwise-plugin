@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
+import { JSDOM } from 'jsdom';
 
 const root = new URL('../', import.meta.url);
 
@@ -117,7 +118,7 @@ class TinyDomParser {
 }
 
 test('all plugin manifests satisfy the manifest contract', async () => {
-  const plugins = ['hello', 'organize-by-author', 'protected-content', 'dictionaries'];
+  const plugins = ['hello', 'organize-by-author', 'protected-content', 'dictionaries', 'readwise'];
   for (const plugin of plugins) {
     const manifest = JSON.parse(await readFile(new URL(plugin + '/manifest.json', root), 'utf8'));
     assert.equal(typeof manifest.title, 'string', plugin + ' needs a title');
@@ -421,4 +422,182 @@ test('protected content restores content.key, writes rights first, and fulfills 
   assert.equal(savedCredential, credentialAfterActivation);
   assert.deepEqual(deletes, ['/Loans/library-loan.acsm']);
   assert.match(reloadedDocument.elements['lib-status'].textContent, /Fetched “Test Book”/);
+});
+
+test('readwise syncs new articles as store-only EPUBs and skips installed or unsyncable docs', async () => {
+  const document = fakeDocument([
+    'rw-status', 'rw-token', 'rw-loc-later', 'rw-loc-shortlist', 'rw-loc-feed',
+    'rw-cap', 'rw-sync', 'rw-save', 'rw-test', 'rw-clear', 'rw-progress',
+  ]);
+  document.elements['rw-clear'].style = {};
+
+  const config = { token: 'tok123', locations: { later: true, shortlist: false, feed: true }, cap: 10 };
+  const listLater = { results: [
+    { id: 'newdoc1', title: 'Fresh: Article!', author: 'Jane Doe', site_name: 'Example',
+      source_url: 'https://example.com/a', category: 'article', parent_id: null,
+      first_opened_at: null, summary: 'Sum' },
+    { id: 'olddoc1', title: 'Old Article', category: 'article', parent_id: null },
+    { id: 'pdfdoc1', title: 'A PDF', category: 'pdf', parent_id: null },
+    { id: 'hldoc1', title: 'A Highlight', category: 'highlight', parent_id: 'newdoc1' },
+  ], nextPageCursor: null };
+  const listFeed = { results: [
+    { id: 'feeddoc1', title: 'Opened Feed Item', category: 'rss', parent_id: null,
+      first_opened_at: '2026-08-01T00:00:00Z' },
+    { id: 'feeddoc2', title: 'Unread Feed Item', category: 'rss', parent_id: null,
+      first_opened_at: null, source_url: 'https://feeds.example/2' },
+  ], nextPageCursor: null };
+  const bodies = {
+    newdoc1: { results: [{ id: 'newdoc1', html_content: '<p>Hello body</p>' }] },
+    feeddoc2: { results: [{ id: 'feeddoc2', html_content: '<p>Feed body</p>' }] },
+  };
+
+  const sdFiles = new Map(); // fetchToSd dest -> JSON text served back over /download
+  const fetchedToSd = [];
+  const deletes = [];
+  const uploads = [];
+  const renames = [];
+  const relayCalls = [];
+  const api = {
+    async relay(method, url, headers) {
+      relayCalls.push({ method, url, headers });
+      return { status: 204, body: '', headers: [] };
+    },
+    async writeFile() { return { ok: true }; },
+    async fetchToSd(url, dest, headers) {
+      fetchedToSd.push({ url, dest, headers });
+      const params = new URL(url).searchParams;
+      let payload;
+      if (params.get('id')) payload = bodies[params.get('id')];
+      else if (params.get('location') === 'later') payload = listLater;
+      else if (params.get('location') === 'feed') payload = listFeed;
+      if (!payload) throw new Error('unexpected fetchToSd: ' + url);
+      sdFiles.set(dest, JSON.stringify(payload));
+      return { status: 200, bytes: 1, complete: true };
+    },
+  };
+  class FakeBlob {
+    constructor(parts, opts) { this.parts = parts; this.opts = opts; }
+  }
+  class FakeFormData {
+    append(name, blob, filename) { this.name = name; this.blob = blob; this.filename = filename; }
+  }
+  async function fetch(url, options = {}) {
+    if (url.startsWith('/download?path=')) {
+      const path = decodeURIComponent(url.slice('/download?path='.length));
+      if (path === '/.crosspoint/readwise-plugin.json') return response({ text: JSON.stringify(config) });
+      if (sdFiles.has(path)) return response({ text: sdFiles.get(path) });
+      return response({ status: 404 });
+    }
+    if (url.startsWith('/api/files')) {
+      return response({ text: JSON.stringify([{ name: 'Old Article [olddoc1].epub', isDirectory: false }]) });
+    }
+    if (url === '/delete') {
+      deletes.push(new URLSearchParams(options.body).get('path'));
+      return response();
+    }
+    if (url === '/rename') {
+      renames.push(new URLSearchParams(options.body).get('name'));
+      return response();
+    }
+    if (url.startsWith('/upload?path=')) {
+      uploads.push({ dir: decodeURIComponent(url.slice('/upload?path='.length)), form: options.body });
+      return response();
+    }
+    throw new Error('unexpected fetch: ' + url);
+  }
+
+  const { render } = await loadPlugin('readwise/plugin.js', {
+    document, fetch,
+    DOMParser: new JSDOM('').window.DOMParser, XMLSerializer: new JSDOM('').window.XMLSerializer,
+    Blob: FakeBlob, FormData: FakeFormData,
+    setTimeout: (fn) => { fn(); },
+  });
+  await render({ innerHTML: '' }, api);
+
+  assert.equal(document.elements['rw-token'].value, 'tok123');
+  assert.equal(document.elements['rw-loc-later'].checked, true);
+  assert.equal(document.elements['rw-loc-shortlist'].checked, false);
+  assert.equal(document.elements['rw-loc-feed'].checked, true);
+  assert.match(document.elements['rw-status'].textContent, /Configured/);
+
+  await document.elements['rw-test'].onclick();
+  assert.equal(relayCalls.length, 1);
+  assert.equal(relayCalls[0].url, 'https://readwise.io/api/v2/auth/');
+  assert.equal(relayCalls[0].headers.Authorization, 'Token tok123');
+  assert.match(document.elements['rw-status'].textContent, /Token OK/);
+
+  await document.elements['rw-sync'].onclick();
+
+  // Lists fetched for the enabled locations only, metadata-only, with the token.
+  const listCalls = fetchedToSd.filter((f) => f.url.includes('location='));
+  assert.deepEqual(listCalls.map((f) => new URL(f.url).searchParams.get('location')), ['later', 'feed']);
+  for (const f of listCalls) {
+    assert.equal(new URL(f.url).searchParams.get('withHtmlContent'), 'false');
+  }
+  for (const f of fetchedToSd) {
+    assert.equal(f.headers.Authorization, 'Token tok123');
+    assert.match(f.dest, /^\/\.crosspoint\/readwise-tmp-.+\.json$/);
+  }
+  assert.equal(new Set(fetchedToSd.map((f) => f.dest)).size, fetchedToSd.length,
+    'temp file names must be unique');
+  assert.deepEqual(deletes.filter((p) => p.endsWith('.json')).sort(), fetchedToSd.map((f) => f.dest).sort(),
+    'every temp file gets a delete attempt');
+
+  // Bodies fetched only for the two syncable new docs (installed, pdf,
+  // highlight, and opened-feed docs all skipped).
+  const bodyCalls = fetchedToSd.filter((f) => f.url.includes('withHtmlContent=true'));
+  assert.deepEqual(bodyCalls.map((f) => new URL(f.url).searchParams.get('id')), ['newdoc1', 'feeddoc2']);
+
+  assert.equal(uploads.length, 2);
+  assert.deepEqual(uploads.map((u) => u.dir), ['/Readwise', '/Readwise']);
+  assert.deepEqual(renames,
+    ['Fresh Article [newdoc1].epub', 'Unread Feed Item [feeddoc2].epub']);
+
+  // Validate the first EPUB's zip layout on real bytes.
+  function testCrc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (let k = 0; k < 8; k++) crc = crc & 1 ? 0xEDB88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  const zip = uploads[0].form.blob.parts[0];
+  assert.ok(zip instanceof Uint8Array);
+  const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  const entries = [];
+  let off = 0;
+  while (off + 4 <= zip.length && dv.getUint32(off, true) === 0x04034b50) {
+    const crc = dv.getUint32(off + 14, true);
+    const size = dv.getUint32(off + 18, true);
+    assert.equal(dv.getUint16(off + 8, true), 0, 'entries must be stored, not compressed');
+    assert.equal(dv.getUint32(off + 22, true), size, 'stored entries: sizes must match');
+    const nameLen = dv.getUint16(off + 26, true);
+    const extraLen = dv.getUint16(off + 28, true);
+    const name = new TextDecoder().decode(zip.subarray(off + 30, off + 30 + nameLen));
+    const data = zip.subarray(off + 30 + nameLen + extraLen, off + 30 + nameLen + extraLen + size);
+    assert.equal(crc, testCrc32(data), 'CRC mismatch for ' + name);
+    entries.push({ name, data });
+    off += 30 + nameLen + extraLen + size;
+  }
+  assert.deepEqual(entries.map((e) => e.name),
+    ['mimetype', 'META-INF/container.xml', 'OEBPS/content.opf', 'OEBPS/toc.ncx', 'OEBPS/article.xhtml']);
+  assert.equal(new TextDecoder().decode(entries[0].data), 'application/epub+zip');
+  const eocd = zip.length - 22;
+  assert.equal(dv.getUint32(eocd, true), 0x06054b50, 'EOCD record present');
+  assert.equal(dv.getUint16(eocd + 8, true), 5, 'EOCD entry count');
+  assert.equal(dv.getUint32(eocd + 16, true), off, 'central directory offset');
+  const opf = new TextDecoder().decode(entries[2].data);
+  assert.match(opf, /urn:readwise:newdoc1/);
+  assert.match(opf, /Fresh: Article!/);
+  assert.match(opf, /Jane Doe/);
+  const xhtml = new TextDecoder().decode(entries[4].data);
+  assert.match(xhtml, /^<\?xml version="1\.0" encoding="utf-8"\?>/);
+  assert.match(xhtml, /Hello body/);
+
+  assert.match(document.elements['rw-progress'].innerHTML, /later: 1 new/);
+  assert.match(document.elements['rw-progress'].innerHTML, /feed: 1 new/);
+  assert.doesNotMatch(document.elements['rw-progress'].innerHTML, /shortlist/);
+  assert.match(document.elements['rw-status'].textContent, /Sync complete — 2 new articles\./);
+  assert.equal(document.elements['rw-sync'].disabled, false);
 });

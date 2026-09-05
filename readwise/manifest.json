@@ -1,0 +1,7 @@
+{
+  "title": "Readwise Reader",
+  "mount": "settings",
+  "description": "One-click sync of your Readwise Reader articles to the SD card as EPUBs.",
+  "author": "Andy Luhrs",
+  "version": "1.0.1"
+}

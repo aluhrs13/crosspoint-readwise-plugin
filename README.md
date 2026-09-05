@@ -71,6 +71,14 @@ Reconnect to the device web UI; the plugin's card appears on its page. A
   conversion). Enter server URL + API client + login in the web page; the
   reader signs in silently (OAuth2 password grant) and downloads articles.
   Works with self-hosted Wallabag or app.wallabag.it.
+- `readwise/` — a Settings plugin with no on-device screen: one-click sync of
+  your Readwise Reader "read it later" articles. Paste your access token in
+  the web page and press Sync — new Later/Shortlist/Feed (unread) items are
+  converted to text-only EPUBs in the browser and saved to `/Readwise/`.
+  Fully read-only against your Readwise account. Reader's cursor pagination
+  and JSON-embedded article bodies don't fit `device.json`, so the whole
+  pipeline (list → HTML-to-XHTML → store-only EPUB → upload) runs in the
+  browser card, using the device only as an HTTP relay and file store.
 - `protected-content/` — a File Manager plugin that connects the reader to a
   protected-content provider, using the device relay + crypto. It detects an
   existing `/.crosspoint/content.key`, restores its fulfillment session, and lists
