@@ -82,6 +82,19 @@
       ]
     },
     {
+      "name": "readwise",
+      "title": "Readwise Reader",
+      "description": "One-click sync of your Readwise Reader articles to the SD card as EPUBs.",
+      "author": "Andy Luhrs",
+      "version": "1.0.1",
+      "base": "https://raw.githubusercontent.com/aluhrs13/crosspoint-readwise-plugin/main/readwise/",
+      "files": [
+        "manifest.json",
+        "plugin.js",
+        "README.md"
+      ]
+    },
+    {
       "name": "wallabag",
       "title": "Wallabag",
       "description": "Read your Wallabag saved articles on the device as EPUB.",
