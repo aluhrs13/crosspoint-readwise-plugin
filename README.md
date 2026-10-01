@@ -55,7 +55,7 @@ Reconnect to the device web UI; the plugin's card appears on its page. A
   metadata" on the reader) so a sync server can forward progress
   to BookFusion.
 - `webdav/` — a Settings plugin + `device.json` pair: enter a WebDAV server
-  URL and credentials in the web page (stored in `/.crosspoint/webdav.json`),
+  URL and credentials in the web page (stored in `config.json` in the plugin's folder),
   then browse folders and download books on the reader itself under Settings >
   System > Plugins. Works with Nextcloud, ownCloud, Seafile, Koofr, and any
   standard WebDAV share.
@@ -68,7 +68,7 @@ Reconnect to the device web UI; the plugin's card appears on its page. A
   workflow. Browse and download on the reader (Settings > System > Plugins)
   or from the web page; files land as loose StarDict files in
   `/dictionaries/<name>/`. The web page can also set the active dictionary
-  (`dictionaryName` in settings.json).
+  (the `dictionaryName` setting).
 - `wallabag/` — a Settings plugin + `device.json` pair: read your Wallabag
   "read it later" articles on the device (Wallabag exports each as EPUB, so no
   conversion). Enter server URL + API client + login in the web page; the

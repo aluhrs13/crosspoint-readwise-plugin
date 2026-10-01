@@ -1,10 +1,10 @@
 // WebDAV setup for the reader. Collects the server URL and credentials in the
-// browser and writes them to /.crosspoint/webdav.json, which the on-device
+// browser and writes them to config.json in its plugin folder, which the on-device
 // WebDAV screen (device.json) reads to browse and download. Browsing and
 // downloading then happen on the reader under Settings > System > Plugins >
 // WebDAV — no computer needed after setup.
 CrossPoint.registerPlugin(async (container, api) => {
-  const CONFIG_PATH = '/.crosspoint/webdav.json';
+  const CONFIG_PATH = api.dir + '/config.json';
 
   container.innerHTML =
     '<h2>WebDAV</h2>' +

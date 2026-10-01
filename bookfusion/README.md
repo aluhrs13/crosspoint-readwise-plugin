@@ -39,7 +39,7 @@ metadata file; re-download them (or create the file by hand) to include them.
 ## Sign out
 
 Tap **Sign out** on the web Settings card, or delete
-`/.crosspoint/bookfusion.json` from the SD card.
+`token.json` from the plugin's folder on the SD card.
 
 ## Notes
 

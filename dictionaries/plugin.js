@@ -6,14 +6,12 @@
 // reader loads dictionaries from /dictionaries/<name>/ as loose StarDict files
 // (plain .idx + .dict.dz); a scheduled workflow in this repo builds them from
 // each language's own Wiktionary edition (plus Webster's 1913 for English) and
-// hosts them as GitHub release assets. The active dictionary lives in
-// /.crosspoint/settings.json under "dictionaryName" — written here directly,
-// so no firmware changes are needed.
+// hosts them as GitHub release assets. The active dictionary is the
+// "dictionaryName" setting of the device's /api/settings.
 CrossPoint.registerPlugin(async (container, api) => {
   const INDEX_URL = 'https://raw.githubusercontent.com/itsthisjustin/sd-plugins/refs/heads/main/dictionaries/catalog/index.json';
-  const INDEX_CACHE = '/.crosspoint/dictionaries-index.json';
+  const INDEX_CACHE = api.dir + '/index.json';
   const DICT_DIR = '/dictionaries';
-  const SETTINGS_PATH = '/.crosspoint/settings.json';
 
   let catalog = [];         // [{id, title, author, base, files, bytes, edition}]
   let installed = new Set() // folder names under /dictionaries
@@ -26,7 +24,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     '<div class="setting-row">' +
     '<span class="setting-control"><select id="fd-active" style="width:100%"></select></span>' +
     '<button type="button" class="btn-small btn-add" id="fd-set-active">Set active</button></div>' +
-    '<p id="fd-active-note" style="color:#666">Takes effect after the reader restarts. You can also pick it on the device under Settings &gt; Dictionary once a dictionary is installed.</p>' +
+    '<p id="fd-active-note" style="color:#666">You can also pick it on the device under Settings &gt; Dictionary once a dictionary is installed.</p>' +
     '<h3 style="margin:0.8em 0 0.2em">Available dictionaries</h3>' +
     '<div class="setting-row"><span class="setting-control">' +
     '<input type="text" id="fd-search" placeholder="Filter, e.g. english or deu" style="width:100%"></span></div>' +
@@ -41,14 +39,6 @@ CrossPoint.registerPlugin(async (container, api) => {
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  }
-
-  // UTF-8-safe base64 for writeFile.
-  function b64(str) {
-    const bytes = new TextEncoder().encode(str);
-    let bin = '';
-    for (const b of bytes) bin += String.fromCharCode(b);
-    return btoa(bin);
   }
 
   async function post(path, params) {
@@ -86,13 +76,14 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   }
 
-  async function readSettings() {
-    const r = await fetch('/download?path=' + encodeURIComponent(SETTINGS_PATH));
-    if (r.status === 404) return {};
+  // The setting is an enum over "None" plus the installed folders, as the
+  // device lists them; values travel as option indexes.
+  async function dictionarySetting() {
+    const r = await fetch('/api/settings');
     if (!r.ok) throw new Error('cannot read settings (' + r.status + ')');
-    const text = await r.text();
-    return text.trim() ? JSON.parse(text) : {};
+    return (await r.json()).find((x) => x.key === 'dictionaryName') || null;
   }
+
 
   // --- install / remove ----------------------------------------------------
   // GitHub release-asset URLs answer with a redirect, and the device's
@@ -166,17 +157,15 @@ CrossPoint.registerPlugin(async (container, api) => {
   document.getElementById('fd-set-active').onclick = async () => {
     const name = activeSel.value;
     try {
-      // Read-modify-write so every other setting survives. The firmware only
-      // reads this file at boot, hence the restart note; changing settings on
-      // the device before restarting can write the old value back.
-      const settings = await readSettings();
-      if (name) settings.dictionaryName = name;
-      else delete settings.dictionaryName;
-      const res = await api.writeFile(SETTINGS_PATH, b64(JSON.stringify(settings)));
-      if (res && res.ok === false) throw new Error('write failed');
-      status(name
-        ? 'Active dictionary set to "' + name + '". Restart the reader to apply.'
-        : 'Active dictionary cleared. Restart the reader to apply.');
+      const setting = await dictionarySetting();
+      const index = name ? (setting ? setting.options.indexOf(name) : -1) : 0;
+      if (index < 0) throw new Error('the reader does not list "' + name + '" yet');
+      const res = await fetch('/api/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dictionaryName: index }),
+      });
+      if (!res.ok) throw new Error('save failed (' + res.status + ')');
+      status(name ? 'Active dictionary set to "' + name + '".' : 'Active dictionary cleared.');
     } catch (e) {
       status('Error saving active dictionary: ' + e.message);
     }
@@ -250,7 +239,10 @@ CrossPoint.registerPlugin(async (container, api) => {
   try {
     installed = await loadInstalled();
     let current = '';
-    try { current = (await readSettings()).dictionaryName || ''; } catch (e) {}
+    try {
+      const setting = await dictionarySetting();
+      if (setting && setting.value > 0) current = setting.options[setting.value];
+    } catch (e) {}
     renderActive(current);
     catalog = await loadCatalog();
     status(catalog.length + ' dictionaries available.');

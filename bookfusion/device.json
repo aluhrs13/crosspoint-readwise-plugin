@@ -1,7 +1,7 @@
 {
   "title": "BookFusion",
   "token": {
-    "file": "/.crosspoint/bookfusion.json",
+    "file": "token.json",
     "path": "token"
   },
   "browse": {

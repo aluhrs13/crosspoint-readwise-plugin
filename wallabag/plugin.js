@@ -1,11 +1,11 @@
 // Wallabag setup for the reader. Collects the server URL, API client
 // credentials, and login in the browser and stores them in
-// /.crosspoint/wallabag.json. The on-device Wallabag screen (device.json) then
+// config.json in its plugin folder. The on-device Wallabag screen (device.json) then
 // mints a bearer token from those credentials, lists unread articles, and
 // downloads each as an EPUB — Wallabag exports articles as EPUB natively, so no
 // conversion is needed. Works with a self-hosted server or app.wallabag.it.
 CrossPoint.registerPlugin(async (container, api) => {
-  const CONFIG_PATH = '/.crosspoint/wallabag.json';
+  const CONFIG_PATH = api.dir + '/config.json';
 
   container.innerHTML =
     '<h2>Wallabag</h2>' +

@@ -7,7 +7,7 @@
 // existing device capabilities (relay, /mkdir, writeFile, /delete) — no
 // firmware changes; publishing a plugin means adding it to a catalog.
 CrossPoint.registerPlugin(async (container, api) => {
-  const CONFIG_PATH = '/.crosspoint/plugin-store.json';
+  const CONFIG_PATH = api.dir + '/config.json';
   const PLUGINS_DIR = '/.crosspoint/plugins';
   const DEFAULT_CATALOG = 'https://raw.githubusercontent.com/itsthisjustin/sd-plugins/refs/heads/main/catalog.json';
 
@@ -115,23 +115,31 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (onProgress) onProgress(files.length, files.length);
   }
 
-  async function uninstallPlugin(p) {
-    const dir = PLUGINS_DIR + '/' + p.name;
-    for (const file of (p.files || [])) {
-      try {
-        await fetch('/delete', {
-          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: 'path=' + encodeURIComponent(dir + '/' + file)
-        });
-      } catch (e) {}
-    }
+  async function del(path) {
     try {
       await fetch('/delete', {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'path=' + encodeURIComponent(dir)
+        body: 'path=' + encodeURIComponent(path)
       });
     } catch (e) {}
   }
+
+  // Removes the plugin folder with everything in it, including the data the
+  // plugin kept there (/delete only removes empty folders).
+  async function removeTree(path) {
+    let entries = [];
+    try { entries = await (await fetch('/api/files?path=' + encodeURIComponent(path))).json(); } catch (e) {}
+    for (const e of entries) {
+      if (e.isDirectory) await removeTree(path + '/' + e.name);
+      else await del(path + '/' + e.name);
+    }
+    await del(path);
+  }
+
+  async function uninstallPlugin(p) {
+    await removeTree(PLUGINS_DIR + '/' + p.name);
+  }
+
 
   // --- stores editor -------------------------------------------------------
   function renderStores() {

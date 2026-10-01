@@ -192,7 +192,7 @@ test('organizer uses the creator file-as and moves a rights sidecar', async () =
   assert.match(document.elements['org-status'].textContent, /Filed 1/);
 });
 
-test('dictionaries installs through redirects and sets the active dictionary without clobbering settings', async () => {
+test('dictionaries installs through redirects and sets the active dictionary through the settings API', async () => {
   const document = fakeDocument([
     'fd-status', 'fd-list', 'fd-active', 'fd-set-active', 'fd-search', 'fd-active-note',
     'fd-install-afr-deu', 'fd-install-eng-deu', 'fd-remove-afr-deu', 'fd-remove-eng-deu',
@@ -208,6 +208,7 @@ test('dictionaries installs through redirects and sets the active dictionary wit
   const writes = [];
   const downloads = [];
   const api = {
+    dir: '/.crosspoint/plugins/dictionaries',
     async relay(method, url) {
       assert.equal(method, 'HEAD');
       if (url.includes('github.com/example')) {
@@ -224,11 +225,16 @@ test('dictionaries installs through redirects and sets the active dictionary wit
       return { status: 200, bytes: 1000, complete: true };
     },
   };
-  async function fetch(url) {
+  const settingsPosts = [];
+  async function fetch(url, init) {
     if (url.startsWith('https://raw.githubusercontent.com/')) return response({ json: index });
     if (url.startsWith('/api/files')) return response({ json: [{ name: 'afr-deu', isDirectory: true }] });
-    if (url.startsWith('/download?path=%2F.crosspoint%2Fsettings.json')) {
-      return response({ text: '{"fontPointSize":12,"dictionaryName":"afr-deu"}' });
+    if (url === '/api/settings' && init && init.method === 'POST') {
+      settingsPosts.push(JSON.parse(init.body));
+      return response({ text: 'Applied 1 setting(s)' });
+    }
+    if (url === '/api/settings') {
+      return response({ json: [{ key: 'dictionaryName', type: 'enum', value: 1, options: ['None', 'afr-deu', 'eng-deu'] }] });
     }
     throw new Error('unexpected fetch: ' + url);
   }
@@ -248,13 +254,10 @@ test('dictionaries installs through redirects and sets the active dictionary wit
   assert.equal(downloads[0].dest, '/dictionaries/eng-deu/eng-deu.ifo');
   assert.equal(downloads[2].dest, '/dictionaries/eng-deu/eng-deu.dict.dz');
 
-  // Setting the active dictionary rewrites settings.json but keeps other keys.
+  // Setting the active dictionary posts its option index; nothing writes settings.json.
   document.elements['fd-active'].value = 'eng-deu';
   await document.elements['fd-set-active'].onclick();
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].path, '/.crosspoint/settings.json');
-  const saved = JSON.parse(writes[0].data);
-  assert.equal(saved.dictionaryName, 'eng-deu');
-  assert.equal(saved.fontPointSize, 12);
+  assert.equal(writes.length, 0);
+  assert.deepEqual(settingsPosts, [{ dictionaryName: 2 }]);
 });
 

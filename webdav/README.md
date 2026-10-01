@@ -29,4 +29,4 @@ bridge Google Drive, Dropbox, and OneDrive to WebDAV, so those work too.)
 
 ## Clear
 
-Tap **Clear** on the web card, or delete `/.crosspoint/webdav.json`.
+Tap **Clear** on the web card, or delete `config.json` from the plugin's folder.

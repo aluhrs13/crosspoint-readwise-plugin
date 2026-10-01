@@ -6,7 +6,7 @@
 CrossPoint.registerPlugin(async (container, api) => {
   const API_BASE = 'https://www.bookfusion.com/api/user';
   const HEADERS = { Accept: 'application/json; api_version=10', 'Content-Type': 'application/json' };
-  const TOKEN_PATH = '/.crosspoint/bookfusion.json';
+  const TOKEN_PATH = api.dir + '/token.json';
   const CLIENT_ID = 'koreader';
 
   let polling = false;
