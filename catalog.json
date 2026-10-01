@@ -86,7 +86,7 @@
       "title": "Protected Content",
       "description": "Fulfill protected content from an online provider.",
       "author": "Diirge",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "base": "https://protected-content-host-production.up.railway.app/",
       "files": [
         "manifest.json",
