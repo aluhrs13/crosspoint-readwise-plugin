@@ -63,8 +63,7 @@ CrossPoint.registerPlugin(async (container, api) => {
 
   // The installed version is whatever the installed manifest.json records; the
   // manifest is one of the files written on install, so it always reflects the
-  // installed build. Missing/absent version => treat as older than any catalog
-  // version (so an update is offered).
+  // installed build. A missing version is offered the update (isNewerVersion).
   async function installedVersion(name) {
     try {
       const r = await fetch('/download?path=' + encodeURIComponent(PLUGINS_DIR + '/' + name + '/manifest.json'));
@@ -176,20 +175,30 @@ CrossPoint.registerPlugin(async (container, api) => {
     renderStores();
   };
 
+  // Versions are MAJOR.MINOR.PATCH (same rule as the reader's on-device store):
+  // only a newer catalog version is an update, so an older catalog never offers
+  // a downgrade. An installed copy without a valid version is offered it.
+  function isNewerVersion(catalog, installed) {
+    const parse = (v) => (/^\d+\.\d+\.\d+$/.test(String(v)) ? String(v).split('.').map(Number) : null);
+    const c = parse(catalog), i = parse(installed);
+    if (!c) return false;
+    if (!i) return true;
+    for (let k = 0; k < 3; k++) if (c[k] !== i[k]) return c[k] > i[k];
+    return false;
+  }
+
   // --- plugin list ---------------------------------------------------------
   // installed: Map(name -> installed version string | null). Absent = not installed.
   function pluginCard(p, installed) {
     const isInstalled = installed.has(p.name);
     const localVer = isInstalled ? installed.get(p.name) : null;
-    // Any version mismatch means an update is available (mirrors the font
-    // downloader, which treats any manifest/on-disk mismatch as an update).
-    const hasUpdate = isInstalled && p.version && localVer !== p.version;
+    const hasUpdate = isInstalled && isNewerVersion(p.version, localVer);
 
     const card = document.createElement('div');
     card.className = 'setting-row';
     let state = '';
     if (hasUpdate) state = ' <span style="color:#c0392b">Update available (v' + escapeHtml(localVer || '?') + ' → v' + escapeHtml(p.version) + ')</span>';
-    else if (isInstalled) state = ' <span style="color:#27ae60">Installed' + (p.version ? ' v' + escapeHtml(p.version) : '') + '</span>';
+    else if (isInstalled) state = ' <span style="color:#27ae60">Installed' + ((localVer || p.version) ? ' v' + escapeHtml(localVer || p.version) : '') + '</span>';
     else if (p.version) state = ' <span style="color:#888">v' + escapeHtml(p.version) + '</span>';
 
     const meta = document.createElement('span');
@@ -277,7 +286,7 @@ CrossPoint.registerPlugin(async (container, api) => {
         listEl.appendChild(header);
       }
       plugins.forEach((p) => {
-        if (installed.has(p.name) && p.version && installed.get(p.name) !== p.version) updates += 1;
+        if (installed.has(p.name) && isNewerVersion(p.version, installed.get(p.name))) updates += 1;
         listEl.appendChild(pluginCard(p, installed));
         total += 1;
       });

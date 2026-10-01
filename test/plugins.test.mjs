@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
@@ -124,6 +124,23 @@ test('all plugin manifests satisfy the manifest contract', async () => {
     assert.equal(typeof manifest.title, 'string', plugin + ' needs a title');
     assert.ok(manifest.title.trim(), plugin + ' needs a non-empty title');
     assert.ok(['files', 'settings'].includes(manifest.mount), plugin + ' has an invalid mount');
+  }
+});
+
+// The firmware only offers an update when the catalog version is a newer
+// MAJOR.MINOR.PATCH than the installed manifest's, so both must use it.
+test('every catalog entry and installed manifest version is MAJOR.MINOR.PATCH', async () => {
+  const semver = /^\d+\.\d+\.\d+$/;
+  const catalog = JSON.parse(await readFile(new URL('catalog.json', root), 'utf8'));
+  for (const entry of catalog.plugins) {
+    assert.match(String(entry.version), semver, entry.name + ' catalog version');
+  }
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    let manifest;
+    try { manifest = JSON.parse(await readFile(new URL(entry.name + '/manifest.json', root), 'utf8')); }
+    catch (e) { continue; }
+    if (manifest.version !== undefined) assert.match(String(manifest.version), semver, entry.name + ' manifest version');
   }
 });
 
@@ -261,3 +278,16 @@ test('dictionaries installs through redirects and sets the active dictionary thr
   assert.deepEqual(settingsPosts, [{ dictionaryName: 2 }]);
 });
 
+
+test('plugin store only offers a newer catalog version as an update', async () => {
+  const src = await readFile(new URL('plugin-store/plugin.js', root), 'utf8');
+  const body = /function isNewerVersion\(catalog, installed\) \{[\s\S]*?\n  \}\n/.exec(src);
+  assert.ok(body, 'isNewerVersion not found in plugin-store/plugin.js');
+  const isNewerVersion = new Function(body[0] + 'return isNewerVersion;')();
+  assert.equal(isNewerVersion('1.1.0', '1.0.0'), true);
+  assert.equal(isNewerVersion('0.1.10', '0.1.9'), true);
+  assert.equal(isNewerVersion('1.0.0', '1.1.0'), false); // no downgrade offers
+  assert.equal(isNewerVersion('1.2.0', '1.2.0'), false);
+  assert.equal(isNewerVersion('1.0.0', null), true); // installed copy without a version
+  assert.equal(isNewerVersion('1.2', '1.0.0'), false); // catalog must be MAJOR.MINOR.PATCH
+});
