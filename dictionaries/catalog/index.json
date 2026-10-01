@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-10",
+ "generated": "2026-10-01",
  "items": [
   {
    "id": "english",
@@ -11,7 +11,7 @@
     "english.idx",
     "english.dict.dz"
    ],
-   "bytes": 61786582
+   "bytes": 61786352
   },
   {
    "id": "chinese",
@@ -35,7 +35,7 @@
     "czech.idx",
     "czech.dict.dz"
    ],
-   "bytes": 3151482
+   "bytes": 3151509
   },
   {
    "id": "dutch",
@@ -47,7 +47,7 @@
     "dutch.idx",
     "dutch.dict.dz"
    ],
-   "bytes": 26247337
+   "bytes": 26247368
   },
   {
    "id": "webster1913",
@@ -71,7 +71,7 @@
     "french.idx",
     "french.dict.dz"
    ],
-   "bytes": 73715754
+   "bytes": 73715610
   },
   {
    "id": "german",
@@ -83,7 +83,7 @@
     "german.idx",
     "german.dict.dz"
    ],
-   "bytes": 45157722
+   "bytes": 45157926
   },
   {
    "id": "greek",
@@ -95,7 +95,7 @@
     "greek.idx",
     "greek.dict.dz"
    ],
-   "bytes": 32789560
+   "bytes": 32789583
   },
   {
    "id": "indonesian",
@@ -107,7 +107,7 @@
     "indonesian.idx",
     "indonesian.dict.dz"
    ],
-   "bytes": 1709989
+   "bytes": 1709973
   },
   {
    "id": "italian",
@@ -155,7 +155,7 @@
     "kurdish.idx",
     "kurdish.dict.dz"
    ],
-   "bytes": 14354493
+   "bytes": 14354479
   },
   {
    "id": "malay",
@@ -167,7 +167,7 @@
     "malay.idx",
     "malay.dict.dz"
    ],
-   "bytes": 487573
+   "bytes": 487548
   },
   {
    "id": "polish",
@@ -191,7 +191,7 @@
     "portuguese.idx",
     "portuguese.dict.dz"
    ],
-   "bytes": 13265129
+   "bytes": 13265106
   },
   {
    "id": "russian",
@@ -203,7 +203,7 @@
     "russian.idx",
     "russian.dict.dz"
    ],
-   "bytes": 26481517
+   "bytes": 26481560
   },
   {
    "id": "spanish",
@@ -239,7 +239,7 @@
     "turkish.idx",
     "turkish.dict.dz"
    ],
-   "bytes": 11923569
+   "bytes": 11923661
   },
   {
    "id": "vietnamese",
