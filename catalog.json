@@ -126,7 +126,7 @@
       "title": "WebDAV",
       "description": "Browse and download books from a WebDAV server (Nextcloud, Koofr, ...).",
       "author": "Diirge",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "base": "https://raw.githubusercontent.com/itsthisjustin/sd-plugins/main/webdav/",
       "files": [
         "manifest.json",

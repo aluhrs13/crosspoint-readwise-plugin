@@ -3,5 +3,5 @@
   "mount": "settings",
   "description": "Browse and download books from a WebDAV server (Nextcloud, Koofr, ...).",
   "author": "Diirge",
-  "version": "1.0.0"
+  "version": "1.0.1"
 }
