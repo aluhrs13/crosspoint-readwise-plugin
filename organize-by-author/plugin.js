@@ -76,18 +76,23 @@ CrossPoint.registerPlugin((container, api) => {
         continue;
       }
 
-      // Protected EPUBs use a neighboring "<book>.epub.rights" file. Keep the
-      // pair together when that sidecar is visible in the current listing.
-      const rightsName = book.name + '.rights';
-      if (names.has(rightsName)) {
-        const rightsMove = await move(here + '/' + rightsName, dest);
-        if (!rightsMove.ok) {
-          // Best-effort rollback: an EPUB without its rights sidecar will not
-          // open, so put the book back if the second half of the move fails.
-          const rollback = await move(dest + '/' + book.name, here || '/');
-          throw new Error('moved ' + book.name + ' but not its rights file (HTTP ' +
-            rightsMove.status + ')' + (rollback.ok ? '; the book was put back' : '; rollback also failed'));
+      // Protected EPUBs keep neighboring "<book>.epub.key" / ".rights" files.
+      // Keep them together when those sidecars are visible in the listing.
+      const movedSidecars = [];
+      for (const suffix of ['.key', '.rights']) {
+        const sidecar = book.name + suffix;
+        if (!names.has(sidecar)) continue;
+        const sidecarMove = await move(here + '/' + sidecar, dest);
+        if (sidecarMove.ok) {
+          movedSidecars.push(sidecar);
+          continue;
         }
+        // Best-effort rollback: an EPUB without its key will not open, so put
+        // everything back if part of the move fails.
+        for (const done of movedSidecars) await move(dest + '/' + done, here || '/');
+        const rollback = await move(dest + '/' + book.name, here || '/');
+        throw new Error('moved ' + book.name + ' but not its ' + suffix.slice(1) + ' file (HTTP ' +
+          sidecarMove.status + ')' + (rollback.ok ? '; the book was put back' : '; rollback also failed'));
       }
       moved++;
     }

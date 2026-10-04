@@ -1,5 +1,5 @@
 {
-  "name": "crosspoint-sd-plugins",
+  "name": "sd-plugins",
   "private": true,
   "type": "module",
   "scripts": {

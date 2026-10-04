@@ -63,23 +63,23 @@ URL as a "store" in the Plugin Store; multiple catalogs coexist.
 
 ```json
 {
-  "name": "CrossPoint Plugins",
+  "name": "SD Plugins",
   "plugins": [
     {
       "name": "wallabag",
       "title": "Wallabag",
       "description": "Read your Wallabag saved articles on the device as EPUB.",
-      "author": "CrossPoint",
+      "author": "Diirge",
       "version": "1.0.0",
-      "base": "https://raw.githubusercontent.com/crosspoint-reader/sd-plugins/main/wallabag/",
+      "base": "https://raw.githubusercontent.com/itsthisjustin/sd-plugins/main/wallabag/",
       "files": ["manifest.json", "device.json", "plugin.js", "README.md"]
     },
     {
       "name": "webdav",
       "title": "WebDAV",
       "description": "Browse and download books from a WebDAV server.",
-      "author": "CrossPoint",
-      "base": "https://raw.githubusercontent.com/crosspoint-reader/sd-plugins/main/webdav/",
+      "author": "Diirge",
+      "base": "https://raw.githubusercontent.com/itsthisjustin/sd-plugins/main/webdav/",
       "files": ["manifest.json", "device.json", "plugin.js", "README.md"]
     }
   ]

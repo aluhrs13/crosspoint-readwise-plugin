@@ -1,6 +1,6 @@
 # Plugin Store
 
-Browse and install CrossPoint plugins from a hosted catalog — no need to pull
+Browse and install plugins from a hosted catalog — no need to pull
 the SD card or copy files by hand.
 
 ## Use from a browser

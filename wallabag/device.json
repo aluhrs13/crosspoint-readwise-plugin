@@ -1,11 +1,11 @@
 {
   "title": "Wallabag",
   "token": {
-    "file": "/.crosspoint/wallabag-token.json",
+    "file": "token.json",
     "path": "access_token"
   },
   "config": {
-    "file": "/.crosspoint/wallabag.json"
+    "file": "config.json"
   },
   "auth": {
     "type": "password",
