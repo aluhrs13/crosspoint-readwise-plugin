@@ -18,7 +18,8 @@ bridge Google Drive, Dropbox, and OneDrive to WebDAV, so those work too.)
 
 1. On the reader, go to **Settings → System → Plugins → WebDAV**.
 2. Browse your folders: Confirm opens a folder, Back goes up a level.
-3. Press Confirm on a book to download it to `/WebDAV/` on the SD card.
+3. Press Confirm on a book to download it to `/WebDAV/` on the SD card, or to
+   the **Download folder** set on the web card.
 
 ## Notes
 
@@ -29,4 +30,4 @@ bridge Google Drive, Dropbox, and OneDrive to WebDAV, so those work too.)
 
 ## Clear
 
-Tap **Clear** on the web card, or delete `/.crosspoint/webdav.json`.
+Tap **Clear** on the web card, or delete `config.json` from the plugin's folder.

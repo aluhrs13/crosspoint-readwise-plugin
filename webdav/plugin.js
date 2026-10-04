@@ -1,10 +1,10 @@
-// WebDAV setup for CrossPoint. Collects the server URL and credentials in the
-// browser and writes them to /.crosspoint/webdav.json, which the on-device
+// WebDAV setup for the reader. Collects the server URL and credentials in the
+// browser and writes them to config.json in its plugin folder, which the on-device
 // WebDAV screen (device.json) reads to browse and download. Browsing and
 // downloading then happen on the reader under Settings > System > Plugins >
 // WebDAV — no computer needed after setup.
 CrossPoint.registerPlugin(async (container, api) => {
-  const CONFIG_PATH = '/.crosspoint/webdav.json';
+  const CONFIG_PATH = api.dir + '/config.json';
 
   container.innerHTML =
     '<h2>WebDAV</h2>' +
@@ -15,6 +15,8 @@ CrossPoint.registerPlugin(async (container, api) => {
     '<span class="setting-control"><input type="text" id="wd-user" autocomplete="username"></span></div>' +
     '<div class="setting-row"><span class="setting-name">Password</span>' +
     '<span class="setting-control"><input type="password" id="wd-pass" autocomplete="current-password"></span></div>' +
+    '<div class="setting-row"><span class="setting-name">Download folder</span>' +
+    '<span class="setting-control"><input type="text" id="wd-dir" placeholder="/WebDAV"></span></div>' +
     '<div class="setting-row">' +
     '<button type="button" class="btn-small btn-add" id="wd-save">Save</button> ' +
     '<button type="button" class="btn-small" id="wd-test">Test</button> ' +
@@ -26,6 +28,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   const urlEl = document.getElementById('wd-url');
   const userEl = document.getElementById('wd-user');
   const passEl = document.getElementById('wd-pass');
+  const dirEl = document.getElementById('wd-dir');
   const clearBtn = document.getElementById('wd-clear');
   const status = (t) => { document.getElementById('wd-status').textContent = t; };
 
@@ -50,7 +53,11 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!url) throw new Error('server URL is required');
     // {cfg.auth} is the base64 for the browse PROPFIND's Authorization header;
     // {cfg.user}/{cfg.pass} feed the device's file download (Basic auth).
-    return { url, user, pass, auth: btoa(user + ':' + pass) };
+    // dest_dir overrides download.dest_dir on the device; empty keeps /WebDAV.
+    const cfg = { url, user, pass, auth: btoa(user + ':' + pass) };
+    const dir = dirEl.value.trim();
+    if (dir) cfg.dest_dir = dir.startsWith('/') ? dir : '/' + dir;
+    return cfg;
   }
 
   document.getElementById('wd-save').onclick = async () => {
@@ -87,7 +94,7 @@ CrossPoint.registerPlugin(async (container, api) => {
   clearBtn.onclick = async () => {
     try {
       await writeConfig({});
-      urlEl.value = userEl.value = passEl.value = '';
+      urlEl.value = userEl.value = passEl.value = dirEl.value = '';
       clearBtn.style.display = 'none';
       status('Configuration cleared.');
     } catch (e) {
@@ -100,6 +107,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     urlEl.value = existing.url;
     userEl.value = existing.user || '';
     passEl.value = existing.pass || '';
+    dirEl.value = existing.dest_dir || '';
     clearBtn.style.display = '';
     status('Configured. Browse from the device, or update below.');
   } else {

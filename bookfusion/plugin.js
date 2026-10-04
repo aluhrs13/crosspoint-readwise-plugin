@@ -1,4 +1,4 @@
-// BookFusion sign-in for CrossPoint. Runs the OAuth device-code flow in this
+// BookFusion sign-in for the reader. Runs the OAuth device-code flow in this
 // browser (which is already the second device the flow wants) and writes the
 // bearer token to the SD card, where the on-device catalog browser described
 // by device.json picks it up. Browsing and downloading happen on the reader
@@ -6,7 +6,7 @@
 CrossPoint.registerPlugin(async (container, api) => {
   const API_BASE = 'https://www.bookfusion.com/api/user';
   const HEADERS = { Accept: 'application/json; api_version=10', 'Content-Type': 'application/json' };
-  const TOKEN_PATH = '/.crosspoint/bookfusion.json';
+  const TOKEN_PATH = api.dir + '/token.json';
   const CLIENT_ID = 'koreader';
 
   let polling = false;

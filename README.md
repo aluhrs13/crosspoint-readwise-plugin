@@ -1,6 +1,6 @@
-# CrossPoint SD-card plugins
+# SD-card plugins
 
-Browser-side plugins the CrossPoint web UI loads from the SD card. Each is just
+Browser-side plugins the reader web UI loads from the SD card. Each is just
 JS + a manifest — **no firmware changes to add one.** The device discovers them,
 serves them, injects them into a page, and backs them with generic device
 capabilities (an outbound HTTP(S) relay, crypto primitives, SD read/write, and
@@ -9,7 +9,7 @@ URL-to-SD download).
 A plugin can extend either the **File Manager** or the **Settings** page — its
 `manifest.json` `mount` decides which. That makes them useful for things like
 tidying a library (sort books into folders by author), batch-optimizing or
-renaming files, or opening protected content from an online provider.
+renaming files, or connecting the reader to online services.
 
 ## Install
 
@@ -50,9 +50,12 @@ Reconnect to the device web UI; the plugin's card appears on its page. A
 - `bookfusion/` — a Settings plugin + `device.json` pair: sign in to
   BookFusion from the web page or on the reader itself (device-code flow with
   QR), then browse and download your library on-device under Settings >
-  System > Plugins. Writes per-book sidecars for a future progress-sync stage.
+  System > Plugins. Writes each book's `<book>.meta.json` sidecar with its
+  BookFusion id, which rides KOSync progress uploads (enable "Send book
+  metadata" on the reader) so a sync server can forward progress
+  to BookFusion.
 - `webdav/` — a Settings plugin + `device.json` pair: enter a WebDAV server
-  URL and credentials in the web page (stored in `/.crosspoint/webdav.json`),
+  URL and credentials in the web page (stored in `config.json` in the plugin's folder),
   then browse folders and download books on the reader itself under Settings >
   System > Plugins. Works with Nextcloud, ownCloud, Seafile, Koofr, and any
   standard WebDAV share.
@@ -65,50 +68,25 @@ Reconnect to the device web UI; the plugin's card appears on its page. A
   workflow. Browse and download on the reader (Settings > System > Plugins)
   or from the web page; files land as loose StarDict files in
   `/dictionaries/<name>/`. The web page can also set the active dictionary
-  (`dictionaryName` in settings.json).
+  (the `dictionaryName` setting).
 - `wallabag/` — a Settings plugin + `device.json` pair: read your Wallabag
   "read it later" articles on the device (Wallabag exports each as EPUB, so no
   conversion). Enter server URL + API client + login in the web page; the
   reader signs in silently (OAuth2 password grant) and downloads articles.
   Works with self-hosted Wallabag or app.wallabag.it.
-- `readwise/` — a Settings plugin with no on-device screen: one-click sync of
-  your Readwise Reader "read it later" articles. Paste your access token in
-  the web page and press Sync — new Later/Shortlist/Feed (unread) items are
-  converted to text-only EPUBs in the browser and saved to `/Readwise/`.
-  Fully read-only against your Readwise account. Reader's cursor pagination
-  and JSON-embedded article bodies don't fit `device.json`, so the whole
-  pipeline (list → HTML-to-XHTML → store-only EPUB → upload) runs in the
-  browser card, using the device only as an HTTP relay and file store.
-- `protected-content/` — a File Manager plugin that connects the reader to a
-  protected-content provider, using the device relay + crypto. It detects an
-  existing `/.crosspoint/content.key`, restores its fulfillment session, and lists
-  `.acsm` files uploaded into the folder currently being viewed. Full flow:
-  activate the device
-  (identity → bootstrap → sign-in → activate, writing `/.crosspoint/content.key`),
-  then fulfills a selected `.acsm` uploaded through the File Manager — the
-  device downloads the book to the SD-card root, writes a `<book>.epub.rights`
-  sidecar the reader decrypts on-device, and deletes the `.acsm` after the
-  complete operation succeeds. The request-signing canonicalization follows the
-  reference implementation.
-
-### Protected Content example limitations
-
-- Credentials created by an older plugin version are detected, but need one
-  reactivation to add the persisted fulfillment session. The reader ignores
-  those additional forward-compatible fields.
-- The final EPUB download URL must return the file directly. The device streams
-  that response to SD and does not currently follow a redirect from `/api/fetch`.
-- The smoke suite exercises the complete protocol shape with mocked services;
-  a real account and authorization file are still needed for a live service test.
-
+- `readwise/` — a browser Settings plugin: sync Later, Shortlist, and unread
+  Feed articles from Readwise Reader into per-list EPUB folders. Stores config
+  in its own plugin folder, adds `.epub.meta.json` service identifiers, and
+  registers a `sync` action for the plugin job queue. See
+  [`readwise/README.md`](readwise/README.md) for firmware requirements and setup.
 ## Development
 
 ### Creating a plugin with Claude
 
 This repo ships a [Claude Code](https://claude.com/claude-code) skill that
 knows the whole plugin contract — the browser `api` object, the `device.json`
-schema, the firmware's hard limits (32 KB relay cap, 8 KB manifest cap, no
-redirect-follow on `/api/fetch`, no on-device archive extraction), store
+schema, the firmware's hard limits (32 KB relay cap, 8 KB manifest cap, atomic downloads and
+writes, no on-device archive extraction), store
 registration, and the test conventions. With Claude Code open in this repo,
 just describe the plugin you want:
 
@@ -133,17 +111,15 @@ The examples have a dependency-free Node smoke suite:
 npm test
 ```
 
-It exercises plugin registration, author metadata parsing, protected-book
-sidecar moves, account activation, fulfillment, unique download names, the
-one-time credential write, and rights writes with mocked device APIs.
+It exercises plugin registration, author metadata parsing, unique download
+names, and file writes with mocked device APIs.
 
 ## Security model
 
 Plugins are JavaScript loaded into the File Manager or Settings page, not an
 isolated iframe. They can call the same-origin web API and any generic device
 capabilities exposed by the host. Install only plugins whose source you trust,
-because network relay and download requests are unrestricted. Never put secrets
-in a plugin folder.
+because network relay and download requests are unrestricted. Never include secrets in distributed plugin files; runtime config may contain plain-text credentials on SD.
 
 ## Contract
 
@@ -160,14 +136,12 @@ in a plugin folder.
 CrossPoint.registerPlugin((container, api) => {
   container.innerHTML = '<h2>My plugin</h2>...';
   // api.name                              -> this plugin's name
+  // api.dir                               -> installed plugin directory; keep runtime config here
   // api.relay(method, url, headers, body) -> { status, body, headers }
   //     device makes the HTTP(S) call (browsers can't, due to CORS);
   //     request headers are an object; response headers are an ordered list of
   //     [name, value] pairs with duplicates preserved (including every
   //     Set-Cookie).
-  // api.cookiesFrom(resp, existing?)      -> a "k=v; k2=v2" Cookie string,
-  //     built from a relay response's Set-Cookie headers (carry a session
-  //     across requests). Generic: it just reads the standard header.
   // api.crypto(op, fields)                -> wolfSSL primitive (base64 I/O)
   // api.writeFile(path, dataB64)          -> write a small file to SD
   // api.fetchToSd(url, dest, headers)     -> device downloads a URL to SD
@@ -193,6 +167,7 @@ already uses (`/api/files`, `/mkdir`, `/move`, `/download`) — see
 | `POST /api/crypto` | generic crypto primitive — hash, random, AES, RSA, PKCS#12 (base64 I/O) |
 | `POST /api/fetch` | device downloads a URL straight to SD |
 | `POST /api/plugin-fs` | plugin writes a small file to SD |
+| `POST /api/book-key` | store a device-wrapped content key for one book |
 | `POST /api/plugin-jobs` (+ `/claim`, `/complete`, `/status`) | job queue: external systems trigger registered plugin actions |
 | `GET /plugins-run` | headless page that executes queued jobs while open |
 
@@ -203,7 +178,7 @@ A plugin can also ship a `device.json` describing an on-device catalog screen
 download to SD, write per-book sidecars) that appears under **Settings >
 System > Plugins** on the reader itself, no phone needed once set up. The
 manifest is pure data; the firmware interprets it with one generic activity.
-Schema reference: `docs/sd-plugins.md` in the crosspoint-reader repository.
+Schema reference: `docs/sd-plugins.md` in the reader firmware repository.
 See `bookfusion/` for a complete example that ships both `plugin.js` (browser
 sign-in) and `device.json` (on-device sign-in + library browsing).
 

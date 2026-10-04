@@ -30,4 +30,4 @@ self-hosted Wallabag or the hosted app.wallabag.it.
 
 ## Clear
 
-Tap **Clear** on the web card, or delete `/.crosspoint/wallabag.json`.
+Tap **Clear** on the web card, or delete `config.json` from the plugin's folder.

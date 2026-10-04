@@ -1,9 +1,9 @@
 ---
 name: create-plugin
-description: Create a new CrossPoint SD-card plugin in this repo — browser plugin.js, on-device device.json, store catalog entry, tests, and README. Use when the user wants to build, scaffold, or extend a plugin for the CrossPoint reader.
+description: Create a new SD-card plugin in this repo — browser plugin.js, on-device device.json, store catalog entry, tests, and README. Use when the user wants to build, scaffold, or extend a plugin for the reader.
 ---
 
-# Create a CrossPoint plugin
+# Create a plugin
 
 A plugin is a folder of static files the reader serves from the SD card — no
 firmware changes, no build step. Two surfaces, use either or both:
@@ -18,8 +18,8 @@ firmware changes, no build step. Two surfaces, use either or both:
 
 Read [reference.md](reference.md) before writing either — it documents the
 exact device API signatures, the full device.json schema, and the firmware's
-hard limits (relay response cap, manifest size cap, no redirect-follow on
-/api/fetch, etc.). Getting these wrong fails silently on the device.
+hard limits (relay response cap, manifest size cap, atomic write/download
+behavior, etc.). Getting these wrong fails silently on the device.
 
 ## Steps
 
@@ -48,16 +48,17 @@ hard limits (relay response cap, manifest size cap, no redirect-follow on
    - `hello/` — minimal render.
    - `plugin-store/` — config file read/write, relay, fetchToSd, install/remove
      UI, the UTF-8-safe `b64()` helper.
-   - `dictionaries/` — redirect resolution via relay HEAD, settings.json
-     read-modify-write, generated catalog + paged device.json browse.
+   - `dictionaries/` — live settings API, generated catalog + paged device.json browse.
+   - `readwise/` — config migration, browser EPUB conversion, service sidecars,
+     and a saved-config action for the plugin job queue.
    - `bookfusion/` — OAuth device-code flow in both plugin.js and device.json,
      plus on-device search (`browse.search`).
    - `wallabag/`, `webdav/` — config-driven device.json (password grant, XML browse).
-   - `protected-content/` — crypto API, XML relay flows.
 
-3. **Register it** in `catalog.json` (this makes it installable from the
-   Plugin Store): add a `plugins[]` entry with `name`, `title`, `description`,
-   `author`, `version`, `base` (`https://raw.githubusercontent.com/itsthisjustin/sd-plugins/main/<name>/`),
+3. **Register it** in this fork's `catalog.json` (this makes it installable
+   from the Plugin Store): add a `plugins[]` entry with `name`, `title`, `description`,
+   `author`, `version`, `base`
+   (`https://raw.githubusercontent.com/aluhrs13/crosspoint-readwise-plugin/main/<name>/` for this fork's plugins),
    and `files` (every file the plugin ships). Keep the array alphabetical.
 
 4. **Test.** Add the plugin to the manifest-contract list in
@@ -72,9 +73,10 @@ hard limits (relay response cap, manifest size cap, no redirect-follow on
 
 ## Conventions
 
-- Config/state files go in `/.crosspoint/<name>.json`; read them with
+- Config/state files go in `api.dir + '/config.json'`; read them with
   `fetch('/download?path=...')`, write with `api.writeFile(path, b64)`.
-  Never store secrets in the plugin folder itself.
+  Never commit secrets. Runtime credentials remain plain text on SD; migrate
+  legacy config only after a successful copy and clear both locations.
 - Downloads go through `api.fetchToSd` (device pulls straight to SD) — never
   pull file bytes through the browser page.
 - Keep on-device catalog titles ASCII: the e-ink UI font has no guaranteed

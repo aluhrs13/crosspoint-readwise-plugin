@@ -9,12 +9,17 @@
 // Fully read-only: nothing is ever written to the Readwise account.
 CrossPoint.registerPlugin(async (container, api) => {
   // Keep separate from the native firmware integration's credential format.
-  const CONFIG_PATH = '/.crosspoint/readwise-plugin.json';
+  if (!api.dir || typeof api.registerAction !== 'function') {
+    container.textContent = 'Readwise Reader requires firmware with api.dir and plugin jobs support. Update the reader firmware and reopen Settings.';
+    return;
+  }
+  const CONFIG_PATH = api.dir + '/config.json';
+  const LEGACY_CONFIG_PATH = '/.crosspoint/readwise-plugin.json';
   const OUT_DIR = '/Readwise';
-  const TMP_PREFIX = '/.crosspoint/readwise-tmp-';
+  const TMP_PREFIX = api.dir + '/readwise-tmp-';
   const LIST_URL = 'https://readwise.io/api/v3/list/';
-  const AUTH_URL = 'https://readwise.io/api/v2/auth/';
   const LOCATIONS = ['later', 'shortlist', 'feed'];
+  const LIST_FOLDERS = { later: 'Later', shortlist: 'Shortlist', feed: 'Feed' };
   const PAGE_LIMIT = 50;
   const MAX_PAGES = 15;
   const DEFAULT_CAP = 10;
@@ -31,7 +36,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     '<span class="setting-control"><input type="checkbox" id="rw-loc-shortlist" checked></span></div>' +
     '<div class="setting-row"><span class="setting-name">Feed (unread only)</span>' +
     '<span class="setting-control"><input type="checkbox" id="rw-loc-feed"></span></div>' +
-    '<div class="setting-row"><span class="setting-name">Max new per list</span>' +
+    '<div class="setting-row"><span class="setting-name">Max articles to try per list</span>' +
     '<span class="setting-control"><input type="number" id="rw-cap" min="1" max="50" value="10"></span></div>' +
     '<div class="setting-row">' +
     '<button type="button" class="btn-small btn-add" id="rw-sync">Sync</button> ' +
@@ -41,7 +46,7 @@ CrossPoint.registerPlugin(async (container, api) => {
     '</div>' +
     '<div id="rw-progress"></div>' +
     '<p style="color:#666">Get your access token at https://readwise.io/access_token. ' +
-    'Sync converts new articles to text-only EPUBs in ' + OUT_DIR + '/ on the SD card. ' +
+    'Sync saves text-only EPUBs in Later, Shortlist, and Feed folders under ' + OUT_DIR + '/. ' +
     'Fully read-only — nothing is ever written to your Readwise account. ' +
     'The token is stored in plain text on the SD card.</p>';
 
@@ -93,13 +98,26 @@ CrossPoint.registerPlugin(async (container, api) => {
   }
 
   async function loadConfig() {
-    try {
-      const r = await fetch('/download?path=' + encodeURIComponent(CONFIG_PATH));
-      if (!r.ok) return null;
+    const r = await fetch('/download?path=' + encodeURIComponent(CONFIG_PATH));
+    if (r.status !== 404) {
+      if (!r.ok) throw new Error('could not read configuration (HTTP ' + r.status + ')');
       return JSON.parse(await r.text());
-    } catch (e) {
-      return null;
     }
+    const legacy = await fetch('/download?path=' + encodeURIComponent(LEGACY_CONFIG_PATH));
+    if (legacy.status === 404) return null;
+    if (!legacy.ok) throw new Error('could not read legacy configuration (HTTP ' + legacy.status + ')');
+    const cfg = JSON.parse(await legacy.text());
+    await writeConfig(cfg);
+    await removeLegacyConfig();
+    return cfg;
+  }
+
+  async function removeLegacyConfig() {
+    const r = await fetch('/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ path: LEGACY_CONFIG_PATH }).toString()
+    });
+    if (!r.ok && r.status !== 404) throw new Error('could not remove legacy configuration (HTTP ' + r.status + ')');
   }
 
   async function postForm(path, fields) {
@@ -162,6 +180,7 @@ CrossPoint.registerPlugin(async (container, api) => {
       return { status: res.status, json: JSON.parse(await r.text()) };
     } finally {
       await postForm('/delete', { path: tmp }).catch(() => {});
+      await postForm('/delete', { path: tmp + '.part' }).catch(() => {});
     }
   }
 
@@ -194,12 +213,37 @@ CrossPoint.registerPlugin(async (container, api) => {
     if (!r.ok) throw new Error('could not list installed articles (HTTP ' + r.status + ')');
     const list = JSON.parse(await r.text());
     if (!Array.isArray(list)) throw new Error('invalid SD directory listing');
-    for (const f of list) {
+    // Include legacy flat downloads and every list folder, even disabled lists,
+    // so changing a Reader list never downloads an existing article again.
+    const allFiles = list.slice();
+    for (const folder of list.filter((f) => f.isDirectory &&
+        Object.values(LIST_FOLDERS).some((name) => name.toLowerCase() === String(f.name).toLowerCase()))) {
+      const response = await fetch('/api/files?path=' + encodeURIComponent(OUT_DIR + '/' + folder.name));
+      if (!response.ok) throw new Error('could not list ' + folder.name + ' (HTTP ' + response.status + ')');
+      const files = JSON.parse(await response.text());
+      if (!Array.isArray(files)) throw new Error('invalid SD directory listing for ' + folder.name);
+      allFiles.push(...files);
+    }
+    for (const f of allFiles) {
       if (f.isDirectory || f.size === 0) continue;
       const m = /\[([A-Za-z0-9_-]+)\]\.epub$/.exec(f.name || '');
       if (m) ids.add(m[1]);
     }
     return ids;
+  }
+
+  async function ensureOutputFolder(parent = '/', name = 'Readwise') {
+    const r = await fetch('/api/files?path=' + encodeURIComponent(parent));
+    if (!r.ok) throw new Error('could not list ' + parent + ' (HTTP ' + r.status + ')');
+    const entries = JSON.parse(await r.text());
+    if (!Array.isArray(entries)) throw new Error('invalid SD root listing');
+    const existing = entries.find((f) => String(f.name).toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (!existing.isDirectory) throw new Error(name + ' exists but is not a folder');
+      return;
+    }
+    // Multipart uploads do not create their destination directory.
+    await postForm('/mkdir', { name, path: parent });
   }
 
   function htmlToXhtml(html, doc) {
@@ -376,24 +420,37 @@ CrossPoint.registerPlugin(async (container, api) => {
     ]);
   }
 
-  async function uploadEpub(filename, bytes) {
+  async function uploadEpub(filename, bytes, outputDir, metadata) {
     // Publish only a completed upload; a partial .epub would be skipped forever.
     const tempName = 'readwise-upload-' + Date.now().toString(36) + '-' + (tmpCounter++) + '.tmp';
-    const tempPath = OUT_DIR + '/' + tempName;
+    const tempPath = outputDir + '/' + tempName;
+    const metadataPath = outputDir + '/' + filename + '.meta.json';
+    let published = false;
+    let metadataWritten = false;
     const fd = new FormData();
     fd.append('file', new Blob([bytes], { type: 'application/epub+zip' }), tempName);
     try {
-      const r = await fetch('/upload?path=' + encodeURIComponent(OUT_DIR), { method: 'POST', body: fd });
-      if (!r.ok) throw new Error('upload failed (HTTP ' + r.status + ')');
+      const r = await fetch('/upload?path=' + encodeURIComponent(outputDir), { method: 'POST', body: fd });
+      if (!r.ok) {
+        const detail = (await r.text()).trim().slice(0, 240);
+        throw new Error('upload failed (HTTP ' + r.status + ')' + (detail ? ': ' + detail : ''));
+      }
+      // Save the service id before publishing the EPUB. A failed metadata
+      // write must leave the article retryable rather than permanently skipped.
+      const result = await api.writeFile(metadataPath, b64(JSON.stringify(metadata)));
+      if (!result || !result.ok) throw new Error('could not save article metadata');
+      metadataWritten = true;
       await postForm('/rename', { path: tempPath, name: filename });
+      published = true;
       return true;
     } finally {
       await postForm('/delete', { path: tempPath }).catch(() => {});
+      if (metadataWritten && !published) await postForm('/delete', { path: metadataPath }).catch(() => {});
     }
   }
 
   // 'added' | 'exists' | 'nocontent'
-  async function downloadArticle(doc, token) {
+  async function downloadArticle(doc, token, outputDir) {
     const res = await fetchReaderJson(buildBodyUrl(doc.id), token);
     const full = res.json.results.find((item) => item && item.id === doc.id);
     if (!full) throw new Error('article no longer available');
@@ -402,14 +459,20 @@ CrossPoint.registerPlugin(async (container, api) => {
     const xhtml = htmlToXhtml(html, doc);
     const bytes = buildEpub(doc, xhtml);
     const filename = sanitizeTitle(doc.title) + ' [' + doc.id + '].epub';
-    return (await uploadEpub(filename, bytes)) ? 'added' : 'exists';
+    return (await uploadEpub(filename, bytes, outputDir, {
+      readwise_id: doc.id, source: 'readwise'
+    })) ? 'added' : 'exists';
   }
 
   async function syncLocation(location, cfg, installed, renderProgress) {
-    const out = { location, added: 0, failed: 0, skipped: 0, failures: [], limited: false };
+    const out = { location, attempted: 0, added: 0, failed: 0, skipped: 0, failures: [], limited: false };
     let cursor = null;
     const cursors = new Set();
-    for (let page = 0; page < MAX_PAGES && out.added < cfg.cap; page++) {
+    const attemptedIds = new Set();
+    const progress = (detail) => renderProgress(location + ': ' + out.attempted + '/' + cfg.cap +
+      ' attempted — ' + out.added + ' saved, ' + out.failed + ' failed, ' +
+      out.skipped + ' skipped' + (detail ? ' — ' + detail : ''));
+    for (let page = 0; page < MAX_PAGES && out.attempted < cfg.cap; page++) {
       let res;
       try {
         res = await fetchReaderJson(buildListUrl(location, cursor), cfg.token);
@@ -420,21 +483,29 @@ CrossPoint.registerPlugin(async (container, api) => {
         return out;
       }
       for (const doc of res.json.results || []) {
-        if (out.added >= cfg.cap) break;
-        if (!isSyncable(doc, location) || installed.has(doc.id)) continue;
-        renderProgress(location + ': ' + (out.added + 1) + '/' + cfg.cap + ' — ' +
-          (doc.title || 'Untitled'));
+        if (out.attempted >= cfg.cap) break;
+        if (!isSyncable(doc, location) || installed.has(doc.id) || attemptedIds.has(doc.id)) continue;
+        attemptedIds.add(doc.id);
+        out.attempted++;
+        progress('Downloading ' + (doc.title || 'Untitled'));
         try {
-          const result = await downloadArticle(doc, cfg.token);
-          if (result === 'nocontent') { out.skipped++; continue; }
+          const result = await downloadArticle(doc, cfg.token, OUT_DIR + '/' + LIST_FOLDERS[location]);
+          if (result === 'nocontent') {
+            out.skipped++;
+            progress((doc.title || doc.id) + ': skipped (no content)');
+            continue;
+          }
           installed.add(doc.id); // also dedups across locations in this sync
           if (result === 'added') out.added++;
+          progress('Saved ' + (doc.title || doc.id));
         } catch (e) {
           if (e && e.auth) throw e;
           out.failed++;
           out.failures.push((doc.title || doc.id) + ': ' + e.message);
+          progress(out.failures[out.failures.length - 1]);
         }
       }
+      if (out.attempted >= cfg.cap) break;
       cursor = res.json.nextPageCursor;
       if (!cursor) break;
       if (cursors.has(cursor)) {
@@ -457,16 +528,12 @@ CrossPoint.registerPlugin(async (container, api) => {
     return s;
   }
 
-  el('rw-sync').onclick = async () => {
-    if (busy) return;
-    let cfg;
-    try {
-      cfg = currentConfig();
-      if (!LOCATIONS.some((loc) => cfg.locations[loc])) throw new Error('select at least one list');
-    } catch (e) {
-      status('Error: ' + e.message);
-      return;
-    }
+  async function sync(cfg) {
+    if (busy) throw new Error('Readwise is already busy');
+    if (!cfg || typeof cfg.token !== 'string' || !cfg.token.trim()) throw new Error('access token is required');
+    if (!cfg.locations || !LOCATIONS.some((loc) => cfg.locations[loc])) throw new Error('select at least one list');
+    const cap = Number(cfg.cap);
+    cfg = { ...cfg, token: cfg.token.trim(), cap: Number.isInteger(cap) && cap >= 1 && cap <= 50 ? cap : DEFAULT_CAP };
     const syncBtn = el('rw-sync');
     busy = true;
     for (const id of ['rw-save', 'rw-clear', 'rw-test']) el(id).disabled = true;
@@ -479,30 +546,53 @@ CrossPoint.registerPlugin(async (container, api) => {
     status('Syncing…');
     renderProgress();
     try {
+      await ensureOutputFolder();
+      for (const location of LOCATIONS) {
+        if (cfg.locations[location]) await ensureOutputFolder(OUT_DIR, LIST_FOLDERS[location]);
+      }
       const installed = await listInstalledIds();
       let totalNew = 0;
       let totalFailed = 0;
+      let totalSkipped = 0;
+      let limited = false;
       for (const location of LOCATIONS) {
         if (!cfg.locations[location]) continue;
         const r = await syncLocation(location, cfg, installed, renderProgress);
         totalNew += r.added;
         totalFailed += r.failed;
+        totalSkipped += r.skipped;
+        limited = limited || r.limited;
         report.push(summaryLine(r));
         for (const f of r.failures) report.push('- ' + f);
         renderProgress();
       }
       status('Sync complete — ' + totalNew + ' new article' + (totalNew === 1 ? '' : 's') +
         (totalFailed ? ', ' + totalFailed + ' failed. See details below.' : '.'));
+      const result = { added: totalNew, failed: totalFailed, skipped: totalSkipped, limited };
+      if (totalFailed) throw new Error('Sync finished — ' + totalFailed + ' failed; see Readwise details');
+      return result;
     } catch (e) {
       status(e && e.auth ? 'Token rejected — check your access token.' : 'Sync failed: ' + e.message);
+      throw e;
     } finally {
       syncBtn.disabled = false;
       busy = false;
       for (const id of ['rw-save', 'rw-clear', 'rw-test']) el(id).disabled = false;
     }
+  }
+
+  el('rw-sync').onclick = async () => {
+    try { return await sync(currentConfig()); }
+    catch (e) { status('Error: ' + e.message); }
   };
 
+  api.registerAction('sync', async () => {
+    if (busy) throw new Error('Readwise is already busy');
+    return sync(await loadConfig());
+  });
+
   el('rw-save').onclick = async () => {
+    if (busy) return;
     try {
       await writeConfig(currentConfig());
       clearBtn.style.display = '';
@@ -513,25 +603,34 @@ CrossPoint.registerPlugin(async (container, api) => {
   };
 
   el('rw-test').onclick = async () => {
+    if (busy) return;
     const token = el('rw-token').value.trim();
     if (!token) {
       status('Error: access token is required');
       return;
     }
     status('Testing token…');
+    busy = true;
+    for (const id of ['rw-sync', 'rw-save', 'rw-clear', 'rw-test']) el(id).disabled = true;
     try {
-      const r = await api.relay('GET', AUTH_URL, { Authorization: 'Token ' + token }, '');
-      if (r.status === 204) status('Token OK.');
-      else if (r.status === 401) status('Token rejected (HTTP 401).');
-      else status('Unexpected response (HTTP ' + (r.status || r.error) + ').');
+      // Exercise the same SD-backed request path as sync. The auth endpoint's
+      // empty 204 response can fail in the device relay before reaching us.
+      await fetchReaderJson(LIST_URL + '?limit=1&withHtmlContent=false', token);
+      status('Token OK. Reader API connection verified.');
     } catch (e) {
-      status('Error: ' + e.message);
+      status(e && e.auth ? 'Token rejected — check your access token.' :
+        'Connection test failed: ' + e.message);
+    } finally {
+      busy = false;
+      for (const id of ['rw-sync', 'rw-save', 'rw-clear', 'rw-test']) el(id).disabled = false;
     }
   };
 
   clearBtn.onclick = async () => {
+    if (busy) return;
     try {
       await writeConfig({});
+      await removeLegacyConfig();
       el('rw-token').value = '';
       clearBtn.style.display = 'none';
       status('Configuration cleared.');
@@ -540,7 +639,12 @@ CrossPoint.registerPlugin(async (container, api) => {
     }
   };
 
-  const existing = await loadConfig();
+  let existing;
+  try { existing = await loadConfig(); }
+  catch (e) {
+    status('Configuration error: ' + e.message);
+    return;
+  }
   if (existing && existing.token) {
     el('rw-token').value = existing.token;
     const locs = existing.locations || {};

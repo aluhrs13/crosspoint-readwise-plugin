@@ -32,10 +32,8 @@ pass through your browser.
 - **On the reader:** Settings → Dictionary lists every installed dictionary —
   this works immediately, no restart needed.
 - **From the web UI:** pick one under "Active dictionary" and press *Set
-  active*. This writes `dictionaryName` into `/.crosspoint/settings.json`, so
-  it takes effect after the reader restarts — and changing any setting on the
-  device before restarting may write the old value back. When in doubt, use
-  the on-device picker.
+  active*. This sets the reader's dictionary setting through the device's
+  settings API and applies immediately.
 
 ## How it works
 
